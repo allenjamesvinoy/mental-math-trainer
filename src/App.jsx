@@ -37,6 +37,33 @@ function generateProblem(difficulty = 1) {
 
 const SESSION_CACHE_KEY = 'math_practice_session';
 
+// Helper to convert operation to spoken words
+function getSpokenOperation(a, opSymbol, b) {
+  switch (opSymbol) {
+    case '+':
+      return `What is ${a} plus ${b}?`;
+    case '-':
+      return `What is ${a} minus ${b}?`;
+    case '×':
+      return `What is ${a} times ${b}?`;
+    case '÷':
+      return `What is ${a} divided by ${b}?`;
+    default:
+      return `What is ${a} ${opSymbol} ${b}?`;
+  }
+}
+
+// Speak the problem using Web Speech API
+function speakProblem(problem) {
+  if ('speechSynthesis' in window) {
+    const utterance = new window.SpeechSynthesisUtterance(
+      getSpokenOperation(problem.a, problem.op.symbol, problem.b)
+    );
+    window.speechSynthesis.cancel(); // Stop any ongoing speech
+    window.speechSynthesis.speak(utterance);
+  }
+}
+
 function App() {
   const [problem, setProblem] = useState(generateProblem());
   const [userAnswer, setUserAnswer] = useState('');
@@ -50,6 +77,8 @@ function App() {
   const [trace, setTrace] = useState([]);
   const sessionTimerRef = useRef();
   const questionTimerRef = useRef();
+  const [speechSupported] = useState('speechSynthesis' in window);
+  const [speechMode, setSpeechMode] = useState(false);
 
   // Load trace from localStorage on mount
   useEffect(() => {
@@ -63,6 +92,7 @@ function App() {
       setShowStart(parsed.showStart !== undefined ? parsed.showStart : true);
       setSessionTimer(parsed.sessionTimer || 0);
       setProblem(parsed.problem || generateProblem());
+      setSpeechMode(parsed.speechMode || false); // Load speech mode from cache
     }
   }, []);
 
@@ -78,9 +108,10 @@ function App() {
         showStart,
         sessionTimer,
         problem,
+        speechMode, // Save speech mode to cache
       })
     );
-  }, [trace, sessionActive, questionsAnswered, difficulty, showStart, sessionTimer, problem]);
+  }, [trace, sessionActive, questionsAnswered, difficulty, showStart, sessionTimer, problem, speechMode]);
 
   // Session timer logic
   useEffect(() => {
@@ -107,6 +138,13 @@ function App() {
     return () => clearInterval(questionTimerRef.current);
   }, [problem, sessionActive]);
 
+  // Speak the problem whenever it changes, but only in speech mode
+  useEffect(() => {
+    if (problem && speechMode) {
+      speakProblem(problem);
+    }
+  }, [problem, speechMode]);
+
   const startSession = () => {
     setSessionActive(true);
     setQuestionsAnswered(0);
@@ -118,6 +156,7 @@ function App() {
     setSessionTimer(0);
     setQuestionTimer(0);
     setTrace([]);
+    setSpeechMode(false); // Reset speech mode
     localStorage.setItem(
       SESSION_CACHE_KEY,
       JSON.stringify({
@@ -128,6 +167,7 @@ function App() {
         showStart: false,
         sessionTimer: 0,
         problem: generateProblem(1),
+        speechMode: false, // Save reset speech mode
       })
     );
   };
@@ -191,10 +231,7 @@ function App() {
 
   const handleInputKeyDown = (e) => {
     if (e.key === 'Enter' && userAnswer !== '') {
-      if (!sessionActive) {
-        handleSubmit(e);
-        nextProblem();
-      }
+      handleSubmit(e);
     }
   };
 
@@ -211,7 +248,29 @@ function App() {
   return (
     <div className="math-app" style={{ display: 'flex', alignItems: 'flex-start' }}>
       <div style={{ flex: 1 }}>
+        {!speechSupported && (
+          <div style={{ background: '#ffe0e0', color: '#a00', padding: '10px', marginBottom: '15px', borderRadius: '5px', fontWeight: 'bold' }}>
+            ⚠️ Your browser does not support speech synthesis. Math problems will not be read aloud.
+          </div>
+        )}
         <h1>Math Practice</h1>
+        <div style={{ marginBottom: 15 }}>
+          <label style={{ fontWeight: 'bold', fontSize: '1em' }}>
+            <input
+              type="checkbox"
+              checked={speechMode}
+              onChange={e => setSpeechMode(e.target.checked)}
+              disabled={!speechSupported}
+              style={{ marginRight: 8 }}
+            />
+            Speech Mode
+          </label>
+          {speechMode && !speechSupported && (
+            <span style={{ color: '#a00', marginLeft: 10 }}>
+              (Not supported in your browser)
+            </span>
+          )}
+        </div>
         {sessionActive && (
           <div style={{ fontSize: '1.2em', marginBottom: 10 }}>
             ⏱️ Session: {Math.floor(sessionTimer / 60)}:{String(sessionTimer % 60).padStart(2, '0')}
@@ -227,11 +286,14 @@ function App() {
             <strong>Session:</strong> Question {questionsAnswered + 1} | Difficulty: {difficulty}x
           </div>
         )}
-        <div className="problem" style={{ fontSize: '2.5em', fontWeight: 'bold', margin: '20px 0' }}>
-          <span>{problem.a}</span>
-          <span style={{ margin: '0 20px' }}>{problem.op.symbol}</span>
-          <span>{problem.b}</span>
-        </div>
+        {/* Only show the problem visually if speech mode is off */}
+        {!speechMode && (
+          <div className="problem" style={{ fontSize: '2.5em', fontWeight: 'bold', margin: '20px 0' }}>
+            <span>{problem.a}</span>
+            <span style={{ margin: '0 20px' }}>{problem.op.symbol}</span>
+            <span>{problem.b}</span>
+          </div>
+        )}
         <form onSubmit={handleSubmit}>
           <input
             type="number"
